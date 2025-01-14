@@ -18,7 +18,7 @@ https://github.com/pydantic/pydantic-ai/issues/118#issuecomment-2589200395
 from pydantic_ai import Agent
 from pydantic_ai_bedrock.bedrock import (
     BedrockModel,
-)  # Replace from pydantic_ai.bedrock import BedrockModel when pydantic_ai support bedrock
+)  # Replace with `pydantic_ai.bedrock import BedrockModel` when pydantic_ai support bedrock
 
 model = BedrockModel(
     model_name="anthropic.claude-3-5-sonnet-20241022-v2:0",
