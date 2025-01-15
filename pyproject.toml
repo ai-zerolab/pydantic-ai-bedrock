@@ -7,7 +7,7 @@ name = "pydantic_ai_bedrock"
 description = "pydantic_ai_bedrock"
 keywords = ["pydantic_ai_bedrock"]
 requires-python = ">=3.10"
-dependencies = ["anyio", "boto3"]
+dependencies = ["anyio", "boto3", "pydantic-ai-slim"]
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -23,6 +23,7 @@ test = [
     "pytest-cov",
     "dirty-equals",
     "boto3-stubs[s3,bedrock-runtime]",
+    "inline-snapshot",
 ]
 docs = ["Sphinx", "pydata-sphinx-theme", "sphinx-click", "autodoc_pydantic"]
 

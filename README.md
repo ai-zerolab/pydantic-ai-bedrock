@@ -1,7 +1,7 @@
-![](https://img.shields.io/github/license/wh1isper/pydantic_ai_bedrock)
-![](https://img.shields.io/github/v/release/wh1isper/pydantic_ai_bedrock)
+![](https://img.shields.io/github/license/wh1isper/pydantic-ai-bedrock)
+![](https://img.shields.io/github/v/release/wh1isper/pydantic-ai-bedrock)
 ![](https://img.shields.io/pypi/dm/pydantic_ai_bedrock)
-![](https://img.shields.io/github/last-commit/wh1isper/pydantic_ai_bedrock)
+![](https://img.shields.io/github/last-commit/wh1isper/pydantic-ai-bedrock)
 ![](https://img.shields.io/pypi/pyversions/pydantic_ai_bedrock)
 
 # pydantic_ai_bedrock
