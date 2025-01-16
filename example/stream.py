@@ -14,8 +14,8 @@ class QuestionResponse(BaseModel):
 
 
 model = BedrockModel(
-    model_name="us.amazon.nova-lite-v1:0",
-    # model_name="anthropic.claude-3-5-haiku-20241022-v1:0",
+    # model_name="us.amazon.nova-lite-v1:0",
+    model_name="anthropic.claude-3-5-haiku-20241022-v1:0",
 )
 agent = Agent(
     model,

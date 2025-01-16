@@ -71,9 +71,6 @@ def exclude_none(data):
     return {k: v for k, v in data.items() if v is not None}
 
 
-import anyio
-
-
 class AsyncIteratorWrapper:
     def __init__(self, sync_iterator: Iterator[T]):
         self.sync_iterator = iter(sync_iterator)
@@ -144,7 +141,7 @@ class BedrockStreamedResponse(StreamedResponse):
                     yield self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=index,
                         tool_name=tool_use.get("name"),
-                        args=(json.loads(tool_use.get("input")) if "input" in tool_use else None),
+                        args=tool_use.get("input"),
                         tool_call_id=tool_id,
                     )
 
