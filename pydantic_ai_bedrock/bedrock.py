@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import functools
+import json
 import typing
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, ParamSpec, overload
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Iterator,
+    Literal,
+    ParamSpec,
+    overload,
+)
 
 import anyio
 import boto3
@@ -15,6 +25,8 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     ModelResponsePart,
+    ModelResponseStreamEvent,
+    PartStartEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
@@ -33,6 +45,7 @@ if TYPE_CHECKING:
     from mypy_boto3_bedrock_runtime.type_defs import (
         ContentBlockOutputTypeDef,
         ConverseResponseTypeDef,
+        ConverseStreamMetadataEventTypeDef,
         ConverseStreamOutputTypeDef,
         InferenceConfigurationTypeDef,
         MessageUnionTypeDef,
@@ -56,6 +69,94 @@ async def run_in_threadpool(func: typing.Callable[P, T], *args: P.args, **kwargs
 def exclude_none(data):
     """Exclude None values from a dictionary."""
     return {k: v for k, v in data.items() if v is not None}
+
+
+import anyio
+
+
+class AsyncIteratorWrapper:
+    def __init__(self, sync_iterator: Iterator[T]):
+        self.sync_iterator = iter(sync_iterator)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> T:
+        try:
+            # Run the synchronous next() call in a thread pool
+            item = await anyio.to_thread.run_sync(next, self.sync_iterator)
+            return item
+        except RuntimeError as e:
+            if type(e.__cause__) is StopIteration:
+                raise StopAsyncIteration
+            else:
+                raise e
+
+
+def now_utc() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
+
+@dataclass
+class BedrockStreamedResponse(StreamedResponse):
+    _event_stream: EventStream[ConverseStreamOutputTypeDef]
+    _timestamp: datetime = field(default_factory=now_utc, init=False)
+
+    async def _get_event_iterator(self) -> AsyncIterator[ModelResponseStreamEvent]:
+        """Return an async iterator of [`ModelResponseStreamEvent`][pydantic_ai.messages.ModelResponseStreamEvent]s.
+
+        This method should be implemented by subclasses to translate the vendor-specific stream of events into
+        pydantic_ai-format events.
+        """
+        chunk: ConverseStreamOutputTypeDef
+        async for chunk in AsyncIteratorWrapper(self._event_stream):
+            if "messageStart" in chunk:
+                continue
+            if "messageStop" in chunk:
+                continue
+            if "metadata" in chunk:
+                if "usage" in chunk["metadata"]:
+                    self._usage += self._map_usage(chunk["metadata"])
+                continue
+            if "contentBlockStart" in chunk:
+                index = chunk["contentBlockStart"]["contentBlockIndex"]
+                start = chunk["contentBlockStart"]["start"]
+                if "toolUse" in start:
+                    tool_use_start = start["toolUse"]
+                    tool_id = tool_use_start["toolUseId"]
+                    tool_name = tool_use_start["name"]
+                    yield self._parts_manager.handle_tool_call_delta(
+                        vendor_part_id=index,
+                        tool_name=tool_name,
+                        args=None,
+                        tool_call_id=tool_id,
+                    )
+
+            if "contentBlockDelta" in chunk:
+                index = chunk["contentBlockDelta"]["contentBlockIndex"]
+                delta = chunk["contentBlockDelta"]["delta"]
+                if "text" in delta:
+                    yield self._parts_manager.handle_text_delta(
+                        vendor_part_id=index, content=delta["text"]
+                    )
+                if "toolUse" in delta:
+                    tool_use = delta["toolUse"]
+                    yield self._parts_manager.handle_tool_call_delta(
+                        vendor_part_id=index,
+                        tool_name=tool_use.get("name"),
+                        args=(json.loads(tool_use.get("input")) if "input" in tool_use else None),
+                        tool_call_id=tool_id,
+                    )
+
+    def timestamp(self) -> datetime:
+        return self._timestamp
+
+    def _map_usage(self, metadata: ConverseStreamMetadataEventTypeDef) -> result.Usage:
+        return result.Usage(
+            request_tokens=metadata["usage"]["inputTokens"],
+            response_tokens=metadata["usage"]["outputTokens"],
+            total_tokens=metadata["usage"]["totalTokens"],
+        )
 
 
 @dataclass(init=False)
@@ -163,14 +264,7 @@ class BedrockAgentModel(AgentModel):
         self, messages: list[ModelMessage], model_settings: ModelSettings | None
     ) -> AsyncIterator[StreamedResponse]:
         response = await self._messages_create(messages, True, model_settings)
-        async with response:
-            yield await self._process_streamed_response(response)
-
-    @staticmethod
-    async def _process_streamed_response(
-        response: EventStream[ConverseStreamOutputTypeDef],
-    ) -> Any:
-        raise NotImplementedError("Streamed responses are not yet supported for this models.")
+        yield BedrockStreamedResponse(_event_stream=response)
 
     @overload
     async def _messages_create(
@@ -230,7 +324,7 @@ class BedrockAgentModel(AgentModel):
         )
         if stream:
             model_response = await run_in_threadpool(self.client.converse_stream, **params)
-            model_response = model_response.stream
+            model_response = model_response["stream"]
         else:
             model_response = await run_in_threadpool(self.client.converse, **params)
         return model_response
