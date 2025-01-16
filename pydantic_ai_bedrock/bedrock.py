@@ -4,7 +4,7 @@ import functools
 import typing
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, AsyncIterator, Literal, ParamSpec, overload
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, ParamSpec, overload
 
 import anyio
 import boto3
@@ -22,7 +22,7 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models import AgentModel, EitherStreamedResponse, Model
+from pydantic_ai.models import AgentModel, Model, StreamedResponse
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from typing_extensions import assert_never
@@ -161,7 +161,7 @@ class BedrockAgentModel(AgentModel):
     @asynccontextmanager
     async def request_stream(
         self, messages: list[ModelMessage], model_settings: ModelSettings | None
-    ) -> AsyncIterator[EitherStreamedResponse]:
+    ) -> AsyncIterator[StreamedResponse]:
         response = await self._messages_create(messages, True, model_settings)
         async with response:
             yield await self._process_streamed_response(response)
@@ -169,7 +169,7 @@ class BedrockAgentModel(AgentModel):
     @staticmethod
     async def _process_streamed_response(
         response: EventStream[ConverseStreamOutputTypeDef],
-    ) -> EitherStreamedResponse:
+    ) -> Any:
         raise NotImplementedError("Streamed responses are not yet supported for this models.")
 
     @overload
