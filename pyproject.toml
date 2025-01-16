@@ -22,7 +22,7 @@ test = [
     "pytest-asyncio",
     "pytest-cov",
     "dirty-equals",
-    "boto3-stubs[s3,bedrock-runtime]",
+    "boto3-stubs[bedrock-runtime]",
     "inline-snapshot",
 ]
 docs = ["Sphinx", "pydata-sphinx-theme", "sphinx-click", "autodoc_pydantic"]
