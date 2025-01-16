@@ -14,8 +14,8 @@ class QuestionResponse(BaseModel):
 
 
 model = BedrockModel(
-    # model_name="us.amazon.nova-lite-v1:0",
-    model_name="anthropic.claude-3-5-haiku-20241022-v1:0",
+    model_name="us.amazon.nova-lite-v1:0",
+    # model_name="anthropic.claude-3-5-haiku-20241022-v1:0",
 )
 agent = Agent(
     model,
@@ -32,7 +32,8 @@ async def main():
         model,
         system_prompt="You are a helpful assistant.",
     )
-    print((await plain_agent.run("hello")).data)
+    async with plain_agent.run_stream("hello") as response:
+        print(await response.get_data())
 
 
 if __name__ == "__main__":
