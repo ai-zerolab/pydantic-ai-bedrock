@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pydantic_ai
@@ -36,23 +37,23 @@ if TYPE_CHECKING:
         TokenUsageTypeDef,
     )
 
+_HERE = Path(__file__).parent
+
 
 def test_init():
     m = BedrockModel(
-        "us.amazon.nova-micro-v1:0",
+        "test",
         aws_access_key_id="foo",
         aws_secret_access_key="bar",
         region_name="us-east-1",
     )
-    assert m.name() == "us.amazon.nova-micro-v1:0"
+    assert m.name() == "test"
 
 
 @dataclass
 class MockBedrockClient:
     completions: ConverseResponseTypeDef | list[ConverseResponseTypeDef] | None = None
-    stream: list[ConverseStreamOutputTypeDef] | list[list[ConverseStreamOutputTypeDef]] | None = (
-        None
-    )
+    stream: list[ConverseStreamOutputTypeDef] | None = None
     index = 0
 
     def converse(self, *_args: Any, **_kwargs: Any) -> ConverseResponseTypeDef:
@@ -64,19 +65,30 @@ class MockBedrockClient:
         return response
 
     def converse_stream(self, *_args: Any, **_kwargs: Any) -> ConverseStreamResponseTypeDef:
-        raise NotImplementedError
-        if isinstance(self.stream, list):
-            response = self.stream[self.index]
-        else:
-            response = self.stream
-        self.index += 1
-        return response
+        @dataclass
+        class MockEventStream:
+            stream: list[ConverseStreamOutputTypeDef]
+
+            def __iter__(self):
+                for item in self.stream:
+                    yield item
+
+        return {
+            "stream": MockEventStream(self.stream),
+        }
 
     @classmethod
     def create_mock(
         cls, completions: ConverseResponseTypeDef | list[ConverseResponseTypeDef]
     ) -> MockBedrockClient:
-        return cast(MockBedrockClient, cls(completions))
+        return cast(MockBedrockClient, cls(completions=completions))
+
+    @classmethod
+    def create_mock_stream(
+        cls,
+        stream: list[ConverseStreamOutputTypeDef],
+    ) -> MockBedrockClient:
+        return cast(MockBedrockClient, cls(stream=stream))
 
 
 @pytest.fixture
@@ -113,7 +125,7 @@ async def test_sync_request_text_response(allow_model_requests: None):
         {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
     )
     mock_client = MockBedrockClient.create_mock(c)
-    m = BedrockModel("us.amazon.nova-micro-v1:0", bedrock_client=mock_client)
+    m = BedrockModel("test", bedrock_client=mock_client)
     agent = Agent(m)
 
     result = await agent.run("hello")
@@ -243,7 +255,7 @@ async def test_request_tool_call(allow_model_requests: None):
     ]
 
     mock_client = MockBedrockClient.create_mock(responses)
-    m = BedrockModel("us.amazon.nova-micro-v1:0", bedrock_client=mock_client)
+    m = BedrockModel("test", bedrock_client=mock_client)
     agent = Agent(m, system_prompt="this is the system prompt")
 
     @agent.tool_plain
@@ -309,3 +321,80 @@ async def test_request_tool_call(allow_model_requests: None):
             ),
         ]
     )
+
+
+from pydantic import BaseModel
+
+
+class QuestionResponse(BaseModel):
+    answer: str
+
+
+async def test_stream_tool(allow_model_requests: None):
+    response_file = _HERE / "stream_tool_responses.jsons"
+    message = []
+    for line in response_file.read_text().splitlines():
+        message.append(json.loads(line))
+
+    mock_client = MockBedrockClient.create_mock_stream(message)
+    m = BedrockModel("test", bedrock_client=mock_client)
+    agent = Agent(m, result_type=QuestionResponse)
+
+    async with agent.run_stream("What is the capital of the UK?") as result:
+        assert not result.is_complete
+        assert [c async for c in result.stream(debounce_by=None)] == snapshot(
+            [QuestionResponse(answer="London"), QuestionResponse(answer="London")]
+        )
+        assert result.is_complete
+        assert result.usage() == snapshot(
+            Usage(requests=1, request_tokens=417, response_tokens=76, total_tokens=493)
+        )
+
+
+async def test_stream_text(allow_model_requests: None):
+    response_file = _HERE / "stream_text_responses.jsons"
+    message = []
+    for line in response_file.read_text().splitlines():
+        message.append(json.loads(line))
+
+    mock_client = MockBedrockClient.create_mock_stream(message)
+    m = BedrockModel("test", bedrock_client=mock_client)
+    agent = Agent(m)
+
+    async with agent.run_stream("What is the capital of the UK?") as result:
+        assert not result.is_complete
+        assert [c async for c in result.stream_text(debounce_by=None)] == snapshot(
+            [
+                "Hello",
+                "Hello!",
+                "Hello! How",
+                "Hello! How can",
+                "Hello! How can I",
+                "Hello! How can I assist",
+                "Hello! How can I assist you",
+                "Hello! How can I assist you today",
+                "Hello! How can I assist you today?",
+                "Hello! How can I assist you today? If",
+                "Hello! How can I assist you today? If you",
+                "Hello! How can I assist you today? If you have",
+                "Hello! How can I assist you today? If you have any",
+                "Hello! How can I assist you today? If you have any questions",
+                "Hello! How can I assist you today? If you have any questions or",
+                "Hello! How can I assist you today? If you have any questions or need",
+                "Hello! How can I assist you today? If you have any questions or need help",
+                "Hello! How can I assist you today? If you have any questions or need help with",
+                "Hello! How can I assist you today? If you have any questions or need help with something",
+                "Hello! How can I assist you today? If you have any questions or need help with something,",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free to",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free to let",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free to let me",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free to let me know",
+                "Hello! How can I assist you today? If you have any questions or need help with something, feel free to let me know.",
+            ]
+        )
+        assert result.is_complete
+        assert result.usage() == snapshot(
+            Usage(requests=1, request_tokens=7, response_tokens=27, total_tokens=34)
+        )
