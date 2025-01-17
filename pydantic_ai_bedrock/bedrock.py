@@ -319,6 +319,7 @@ class BedrockAgentModel(AgentModel):
                 toolConfig=toolConfig,
             )
         )
+        print(params)
         if stream:
             model_response = await run_in_threadpool(self.client.converse_stream, **params)
             model_response = model_response["stream"]
@@ -368,7 +369,7 @@ class BedrockAgentModel(AgentModel):
                                     {
                                         "toolResult": {
                                             "toolUseId": part.tool_call_id,
-                                            "content": part.model_response_str(),
+                                            "content": [{"text": part.model_response_str()}],
                                             "status": "success",
                                         }
                                     }
@@ -391,7 +392,7 @@ class BedrockAgentModel(AgentModel):
                                         {
                                             "toolResult": {
                                                 "toolUseId": part.tool_call_id,
-                                                "content": part.model_response(),
+                                                "content": [{"text": part.model_response()}],
                                                 "status": "error",
                                             }
                                         }
@@ -405,7 +406,7 @@ class BedrockAgentModel(AgentModel):
                         content.append({"text": item.content})
                     else:
                         assert isinstance(item, ToolCallPart)
-                        content.append(_map_tool_call(item))
+                        content.append(_map_tool_call(item))  # FIXME: MISSING key
                 bedrock_messages.append(
                     {
                         "role": "assistant",
@@ -420,7 +421,9 @@ class BedrockAgentModel(AgentModel):
 def _map_tool_call(t: ToolCallPart) -> ToolUseBlockOutputTypeDef:
     assert isinstance(t.args, ArgsDict), f"Expected ArgsDict, got {t.args}"
     return {
-        "toolUseId": t.tool_call_id,
-        "name": t.tool_name,
-        "input": t.args_as_dict(),
+        "toolUse": {
+            "toolUseId": t.tool_call_id,
+            "name": t.tool_name,
+            "input": t.args_as_dict(),
+        }
     }

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.agent import capture_run_messages
 
 from pydantic_ai_bedrock.bedrock import (  # Replace from pydantic_ai.bedrock import BedrockModel when pydantic_ai support bedrock
@@ -20,6 +20,13 @@ agent = Agent(
     system_prompt="You are a helpful assistant. You muse use a tool.",
     result_type=TalkResponse,
 )
+
+
+@agent.result_validator
+async def validate_json(response: TalkResponse) -> TalkResponse:
+    if response.text != "Hello! :D":
+        raise ModelRetry("You shloud say Hello! :D")
+    return response
 
 
 if __name__ == "__main__":
