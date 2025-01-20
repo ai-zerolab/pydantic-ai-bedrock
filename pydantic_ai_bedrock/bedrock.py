@@ -319,7 +319,6 @@ class BedrockAgentModel(AgentModel):
                 toolConfig=toolConfig,
             )
         )
-        print(params)
         if stream:
             model_response = await run_in_threadpool(self.client.converse_stream, **params)
             model_response = model_response["stream"]
