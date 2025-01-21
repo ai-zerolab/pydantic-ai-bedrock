@@ -6,15 +6,7 @@ import typing
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    AsyncIterator,
-    Iterator,
-    Literal,
-    ParamSpec,
-    overload,
-)
+from typing import TYPE_CHECKING, AsyncIterator, Iterator, Literal, overload
 
 import anyio
 import boto3
@@ -37,7 +29,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import AgentModel, Model, StreamedResponse
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
-from typing_extensions import assert_never
+from typing_extensions import ParamSpec, assert_never
 
 if TYPE_CHECKING:
     from botocore.eventstream import EventStream
