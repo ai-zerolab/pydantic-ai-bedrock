@@ -279,14 +279,12 @@ class BedrockAgentModel(AgentModel):
         stream: bool,
         model_settings: ModelSettings | None,
     ) -> ConverseResponseTypeDef | EventStream[ConverseStreamOutputTypeDef]:
-        if not self.tools:
+        if not self.tools or not self.support_tools_choice:
             tool_choice: None = None
-        elif not self.allow_text_result and self.support_tools_choice:
-            tool_choice = {
-                "tool": {"name": tool_type_def["toolSpec"]["name"]} for tool_type_def in self.tools
-            }
+        elif not self.allow_text_result:
+            tool_choice = {'any': {}}
         else:
-            tool_choice = None
+            tool_choice = {'auto': {}}
 
         system_prompt, bedrock_messages = self._map_message(messages)
         inference_config = self._map_inference_config(model_settings)
