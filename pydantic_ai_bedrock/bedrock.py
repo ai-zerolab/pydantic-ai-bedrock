@@ -255,7 +255,7 @@ class BedrockAgentModel(AgentModel):
         self, messages: list[ModelMessage], model_settings: ModelSettings | None
     ) -> AsyncIterator[StreamedResponse]:
         response = await self._messages_create(messages, True, model_settings)
-        yield BedrockStreamedResponse(_event_stream=response)
+        yield BedrockStreamedResponse(_model_name=self.model_name, _event_stream=response)
 
     @overload
     async def _messages_create(
