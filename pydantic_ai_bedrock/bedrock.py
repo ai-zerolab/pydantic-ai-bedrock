@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import functools
-import json
 import typing
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -18,7 +17,6 @@ from pydantic_ai.messages import (
     ModelResponse,
     ModelResponsePart,
     ModelResponseStreamEvent,
-    PartStartEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
