@@ -11,7 +11,6 @@ import anyio
 import boto3
 from pydantic_ai import result
 from pydantic_ai.messages import (
-    ArgsDict,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -235,10 +234,10 @@ class BedrockAgentModel(AgentModel):
             else:
                 assert item.get("toolUse")
                 items.append(
-                    ToolCallPart.from_raw_args(
-                        item["toolUse"]["name"],
-                        item["toolUse"]["input"],
-                        item["toolUse"]["toolUseId"],
+                    ToolCallPart(
+                        tool_name=item["toolUse"]["name"],
+                        args=item["toolUse"]["input"],
+                        tool_call_id=item["toolUse"]["toolUseId"],
                     ),
                 )
         usage = result.Usage(
@@ -408,7 +407,6 @@ class BedrockAgentModel(AgentModel):
 
 
 def _map_tool_call(t: ToolCallPart) -> ToolUseBlockOutputTypeDef:
-    assert isinstance(t.args, ArgsDict), f"Expected ArgsDict, got {t.args}"
     return {
         "toolUse": {
             "toolUseId": t.tool_call_id,
