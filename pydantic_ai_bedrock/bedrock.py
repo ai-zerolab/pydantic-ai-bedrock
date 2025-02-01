@@ -96,6 +96,7 @@ class BedrockStreamedResponse(StreamedResponse):
         """
         chunk: ConverseStreamOutputTypeDef
         async for chunk in AsyncIteratorWrapper(self._event_stream):
+            # TODO: Switch this to `match` when we drop Python 3.9 support
             if "messageStart" in chunk:
                 continue
             if "messageStop" in chunk:
@@ -229,6 +230,7 @@ class BedrockAgentModel(AgentModel):
     ) -> tuple[ModelResponse, result.Usage]:
         items: list[ModelResponsePart] = []
         for item in response["output"]["message"]["content"]:
+            # TODO: Switch this to `match` when we drop Python 3.9 support
             if item.get("text"):
                 items.append(TextPart(item["text"]))
             else:
