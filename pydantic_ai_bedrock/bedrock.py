@@ -154,8 +154,10 @@ class BedrockStreamedResponse(StreamedResponse):
 class BedrockModel(Model):
     """A model that uses the Bedrock-runtime API."""
 
-    model_name: str
     client: BedrockRuntimeClient
+
+    _model_name: str = field(repr=False)
+    _system: str | None = field(default="bedrock", repr=False)
 
     def __init__(
         self,
@@ -167,7 +169,7 @@ class BedrockModel(Model):
         region_name: str | None = None,
         bedrock_client: BedrockRuntimeClient | None = None,
     ):
-        self.model_name = model_name
+        self._model_name = model_name
         if bedrock_client:
             self.client = bedrock_client
         else:
@@ -182,7 +184,7 @@ class BedrockModel(Model):
     def _get_tools(self, model_request_parameters: ModelRequestParameters) -> list[ToolParams]:
         tools = [self._map_tool_definition(r) for r in model_request_parameters.function_tools]
         if model_request_parameters.function_tools:
-            tools += [self._map_tool_definition(r) for r in model_request_parameters]
+            tools += [self._map_tool_definition(r) for r in model_request_parameters.function_tools]
         return tools
 
     def name(self) -> str:
@@ -287,11 +289,11 @@ class BedrockModel(Model):
         toolConfig = (
             exclude_none(
                 {
-                    "tools": self.tools,
+                    "tools": tools,
                     "toolChoice": tool_choice,
                 }
             )
-            if self.tools
+            if tools
             else None
         )
         model_settings = model_settings or {}
