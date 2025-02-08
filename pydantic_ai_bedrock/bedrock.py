@@ -23,9 +23,13 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models import AgentModel, Model, StreamedResponse
+from pydantic_ai.models import (
+    Model,
+    ModelRequestParameters,
+    StreamedResponse,
+)
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.tools import ToolDefinition, ToolParams
 from typing_extensions import ParamSpec, assert_never
 
 if TYPE_CHECKING:
@@ -175,23 +179,11 @@ class BedrockModel(Model):
                 region_name=region_name,
             )
 
-    async def agent_model(
-        self,
-        *,
-        function_tools: list[ToolDefinition],
-        allow_text_result: bool,
-        result_tools: list[ToolDefinition],
-    ) -> AgentModel:
-        tools = [self._map_tool_definition(r) for r in function_tools]
-        if result_tools:
-            tools += [self._map_tool_definition(r) for r in result_tools]
-        return BedrockAgentModel(
-            self.client,
-            self.model_name,
-            allow_text_result,
-            tools,
-            support_tools_choice=(True if self.model_name.startswith("anthropic") else False),
-        )
+    def _get_tools(self, model_request_parameters: ModelRequestParameters) -> list[ToolParams]:
+        tools = [self._map_tool_definition(r) for r in model_request_parameters.function_tools]
+        if model_request_parameters.function_tools:
+            tools += [self._map_tool_definition(r) for r in model_request_parameters]
+        return tools
 
     def name(self) -> str:
         return self.model_name
@@ -206,23 +198,28 @@ class BedrockModel(Model):
             }
         }
 
-
-@dataclass
-class BedrockAgentModel(AgentModel):
-    """Implementation of `AgentModel` for Bedrock models."""
-
-    client: BedrockRuntimeClient
-    model_name: str
-    allow_text_result: bool
-    tools: list[ToolTypeDef]
-
-    support_tools_choice: bool
-
     async def request(
-        self, messages: list[ModelMessage], model_settings: ModelSettings | None
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
     ) -> tuple[ModelResponse, result.Usage]:
-        response = await self._messages_create(messages, False, model_settings)
+        response = await self._messages_create(
+            messages, False, model_settings, model_request_parameters
+        )
         return await self._process_response(response)
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> AsyncIterator[StreamedResponse]:
+        response = await self._messages_create(
+            messages, True, model_settings, model_request_parameters
+        )
+        yield BedrockStreamedResponse(_model_name=self.model_name, _event_stream=response)
 
     @staticmethod
     async def _process_response(
@@ -249,19 +246,13 @@ class BedrockAgentModel(AgentModel):
         )
         return ModelResponse(items), usage
 
-    @asynccontextmanager
-    async def request_stream(
-        self, messages: list[ModelMessage], model_settings: ModelSettings | None
-    ) -> AsyncIterator[StreamedResponse]:
-        response = await self._messages_create(messages, True, model_settings)
-        yield BedrockStreamedResponse(_model_name=self.model_name, _event_stream=response)
-
     @overload
     async def _messages_create(
         self,
         messages: list[ModelMessage],
         stream: Literal[True],
         model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
     ) -> EventStream[ConverseStreamOutputTypeDef]:
         pass
 
@@ -271,6 +262,7 @@ class BedrockAgentModel(AgentModel):
         messages: list[ModelMessage],
         stream: Literal[False],
         model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
     ) -> ConverseResponseTypeDef:
         pass
 
@@ -279,10 +271,13 @@ class BedrockAgentModel(AgentModel):
         messages: list[ModelMessage],
         stream: bool,
         model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
     ) -> ConverseResponseTypeDef | EventStream[ConverseStreamOutputTypeDef]:
-        if not self.tools or not self.support_tools_choice:
+        tools = self._get_tools(model_request_parameters)
+        support_tools_choice = self.model_name.startswith("anthropic")
+        if not tools or not support_tools_choice:
             tool_choice: None = None
-        elif not self.allow_text_result:
+        elif not model_request_parameters.allow_text_result:
             tool_choice = {"any": {}}
         else:
             tool_choice = {"auto": {}}
