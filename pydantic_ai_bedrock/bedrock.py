@@ -183,8 +183,8 @@ class BedrockModel(Model):
 
     def _get_tools(self, model_request_parameters: ModelRequestParameters) -> list[ToolParams]:
         tools = [self._map_tool_definition(r) for r in model_request_parameters.function_tools]
-        if model_request_parameters.function_tools:
-            tools += [self._map_tool_definition(r) for r in model_request_parameters.function_tools]
+        if model_request_parameters.result_tools:
+            tools += [self._map_tool_definition(r) for r in model_request_parameters.result_tools]
         return tools
 
     def name(self) -> str:
