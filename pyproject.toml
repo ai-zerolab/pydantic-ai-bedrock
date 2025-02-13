@@ -7,7 +7,7 @@ name = "pydantic_ai_bedrock"
 description = "pydantic_ai_bedrock"
 keywords = ["pydantic_ai_bedrock"]
 requires-python = ">=3.9"
-dependencies = ["anyio", "boto3", "pydantic-ai-slim>=0.0.23", "typing_extensions"]
+dependencies = ["anyio", "boto3", "pydantic-ai-slim>=0.0.24", "typing_extensions"]
 dynamic = ["version"]
 classifiers = [
     "Programming Language :: Python :: 3",
