@@ -89,6 +89,7 @@ def now_utc() -> datetime:
 
 @dataclass
 class BedrockStreamedResponse(StreamedResponse):
+    _model_name: str
     _event_stream: EventStream[ConverseStreamOutputTypeDef]
     _timestamp: datetime = field(default_factory=now_utc, init=False)
 
@@ -142,6 +143,11 @@ class BedrockStreamedResponse(StreamedResponse):
     def timestamp(self) -> datetime:
         return self._timestamp
 
+    @property
+    def model_name(self) -> str:
+        """Get the model name of the response."""
+        return self._model_name
+
     def _map_usage(self, metadata: ConverseStreamMetadataEventTypeDef) -> result.Usage:
         return result.Usage(
             request_tokens=metadata["usage"]["inputTokens"],
@@ -158,6 +164,16 @@ class BedrockModel(Model):
 
     _model_name: str = field(repr=False)
     _system: str | None = field(default="bedrock", repr=False)
+
+    @property
+    def model_name(self) -> str:
+        """The model name."""
+        return self._model_name
+
+    @property
+    def system(self) -> str | None:
+        """The system / model provider, ex: openai."""
+        return self._system
 
     def __init__(
         self,
