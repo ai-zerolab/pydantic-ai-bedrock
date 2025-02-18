@@ -144,9 +144,17 @@ async def test_sync_request_text_response(allow_model_requests: None):
     assert result.all_messages() == snapshot(
         [
             ModelRequest(parts=[UserPromptPart(content="hello", timestamp=IsNow(tz=timezone.utc))]),
-            ModelResponse(parts=[TextPart(content="world")], timestamp=IsNow(tz=timezone.utc)),
+            ModelResponse(
+                parts=[TextPart(content="world")],
+                model_name="test",
+                timestamp=IsNow(tz=timezone.utc),
+            ),
             ModelRequest(parts=[UserPromptPart(content="hello", timestamp=IsNow(tz=timezone.utc))]),
-            ModelResponse(parts=[TextPart(content="world")], timestamp=IsNow(tz=timezone.utc)),
+            ModelResponse(
+                parts=[TextPart(content="world")],
+                model_name="test",
+                timestamp=IsNow(tz=timezone.utc),
+            ),
         ]
     )
 
@@ -205,6 +213,7 @@ async def test_request_structured_response(allow_model_requests: None):
                         tool_call_id="123",
                     )
                 ],
+                model_name="claude-3-5-haiku-latest",
                 timestamp=IsNow(tz=timezone.utc),
             ),
             ModelRequest(
@@ -282,6 +291,7 @@ async def test_request_tool_call(allow_model_requests: None):
                         tool_call_id="1",
                     )
                 ],
+                model_name="test",
                 timestamp=IsNow(tz=timezone.utc),
             ),
             ModelRequest(
@@ -302,6 +312,7 @@ async def test_request_tool_call(allow_model_requests: None):
                         tool_call_id="2",
                     )
                 ],
+                model_name="test",
                 timestamp=IsNow(tz=timezone.utc),
             ),
             ModelRequest(
@@ -316,6 +327,7 @@ async def test_request_tool_call(allow_model_requests: None):
             ),
             ModelResponse(
                 parts=[TextPart(content="final response")],
+                model_name="test",
                 timestamp=IsNow(tz=timezone.utc),
             ),
         ]

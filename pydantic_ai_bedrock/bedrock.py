@@ -239,8 +239,8 @@ class BedrockModel(Model):
         )
         yield BedrockStreamedResponse(_model_name=self.model_name, _event_stream=response)
 
-    @staticmethod
     async def _process_response(
+        self,
         response: ConverseResponseTypeDef,
     ) -> tuple[ModelResponse, result.Usage]:
         items: list[ModelResponsePart] = []
@@ -262,7 +262,7 @@ class BedrockModel(Model):
             response_tokens=response["usage"]["outputTokens"],
             total_tokens=response["usage"]["totalTokens"],
         )
-        return ModelResponse(items), usage
+        return ModelResponse(items, model_name=self.model_name), usage
 
     @overload
     async def _messages_create(
