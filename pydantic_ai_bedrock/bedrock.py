@@ -292,7 +292,9 @@ class BedrockModel(Model):
         model_request_parameters: ModelRequestParameters,
     ) -> ConverseResponseTypeDef | EventStream[ConverseStreamOutputTypeDef]:
         tools = self._get_tools(model_request_parameters)
-        support_tools_choice = self.model_name.startswith("anthropic")
+        support_tools_choice = (
+            self.model_name.startswith("anthropic") or "anthropic" in self.model_name
+        )
         if not tools or not support_tools_choice:
             tool_choice: None = None
         elif not model_request_parameters.allow_text_result:
