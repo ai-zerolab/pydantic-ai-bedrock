@@ -140,6 +140,7 @@ class BedrockStreamedResponse(StreamedResponse):
                         tool_call_id=tool_id,
                     )
 
+    @property
     def timestamp(self) -> datetime:
         return self._timestamp
 
