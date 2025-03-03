@@ -110,6 +110,7 @@ class BedrockStreamedResponse(StreamedResponse):
                 if "usage" in chunk["metadata"]:
                     self._usage += self._map_usage(chunk["metadata"])
                 continue
+            print(chunk)
             if "contentBlockStart" in chunk:
                 index = chunk["contentBlockStart"]["contentBlockIndex"]
                 start = chunk["contentBlockStart"]["start"]
@@ -136,7 +137,7 @@ class BedrockStreamedResponse(StreamedResponse):
                     yield self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=index,
                         tool_name=tool_use.get("name"),
-                        args=tool_use.get("input"),
+                        args=tool_use.get("input") or {},
                         tool_call_id=tool_id,
                     )
 
