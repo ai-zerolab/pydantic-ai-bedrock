@@ -136,7 +136,7 @@ class BedrockStreamedResponse(StreamedResponse):
                     yield self._parts_manager.handle_tool_call_delta(
                         vendor_part_id=index,
                         tool_name=tool_use.get("name"),
-                        args=tool_use.get("input"),
+                        args=tool_use.get("input") or {},
                         tool_call_id=tool_id,
                     )
 
