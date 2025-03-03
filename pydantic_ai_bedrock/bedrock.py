@@ -110,7 +110,6 @@ class BedrockStreamedResponse(StreamedResponse):
                 if "usage" in chunk["metadata"]:
                     self._usage += self._map_usage(chunk["metadata"])
                 continue
-            print(chunk)
             if "contentBlockStart" in chunk:
                 index = chunk["contentBlockStart"]["contentBlockIndex"]
                 start = chunk["contentBlockStart"]["start"]
