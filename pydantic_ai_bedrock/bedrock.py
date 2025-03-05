@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         ConverseStreamOutputTypeDef,
         InferenceConfigurationTypeDef,
         MessageUnionTypeDef,
+        ReasoningContentBlockOutputTypeDef,
         ToolTypeDef,
         ToolUseBlockOutputTypeDef,
     )
@@ -49,6 +50,18 @@ if TYPE_CHECKING:
 
 P = ParamSpec("P")
 T = typing.TypeVar("T")
+
+
+@dataclass
+class ReasoningTextBlock:
+    text: str
+    signature: str | None = None
+
+
+@dataclass
+class ReasoningPart:
+    reasoningText: ReasoningTextBlock | None = None
+    redactedContent: bytes | None = None
 
 
 async def run_in_threadpool(func: typing.Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
@@ -87,6 +100,19 @@ def now_utc() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
+def handle_reasoning_delta(
+    self,
+):
+    pass
+
+
+def patch_reasoning_handler(parts_manager):
+    if hasattr(parts_manager, "handle_reasoning_delta"):
+        return parts_manager
+
+    parts_manager.handle_reasoning_delta = handle_reasoning_delta
+
+
 @dataclass
 class BedrockStreamedResponse(StreamedResponse):
     _model_name: str
@@ -99,6 +125,8 @@ class BedrockStreamedResponse(StreamedResponse):
         This method should be implemented by subclasses to translate the vendor-specific stream of events into
         pydantic_ai-format events.
         """
+        self._parts_manager = patch_reasoning_handler(self._parts_manager)
+
         chunk: ConverseStreamOutputTypeDef
         async for chunk in AsyncIteratorWrapper(self._event_stream):
             # TODO: Switch this to `match` when we drop Python 3.9 support
@@ -141,12 +169,9 @@ class BedrockStreamedResponse(StreamedResponse):
                         tool_call_id=tool_id,
                     )
                 if "reasoningContent" in delta:
-                    # TODO: Move to reasoning part when available
-                    # yield self._parts_manager.handle_text_delta(
-                    #     vendor_part_id=index,
-                    #     content=delta["reasoningContent"]["text"],
-                    # )
-                    continue
+                    yield self._parts_manager.handle_reasoning_delta(
+                        vendor_part_id=index,
+                    )
 
     @property
     def timestamp(self) -> datetime:
@@ -274,9 +299,7 @@ class BedrockModel(Model):
                     ),
                 )
             if item.get("reasoningContent"):
-                # FIXME: Move to reasoning part when available
-                # items.append(TextPart(item["reasoningText"]["text"]))
-                pass
+                items.append(ReasoningPart(item["reasoningContent"]))
 
         usage = result.Usage(
             request_tokens=response["usage"]["inputTokens"],
@@ -415,6 +438,7 @@ class BedrockModel(Model):
                                 ],
                             },
                         )
+
                     elif isinstance(part, RetryPromptPart):
                         if part.tool_name is None:
                             bedrock_messages.append(
@@ -443,6 +467,8 @@ class BedrockModel(Model):
                 for item in m.parts:
                     if isinstance(item, TextPart):
                         content.append({"text": item.content})
+                    elif isinstance(item, ReasoningPart):
+                        content.append({"reasoningContent": {_map_reasoning_content(item)}})
                     else:
                         assert isinstance(item, ToolCallPart)
                         content.append(_map_tool_call(item))  # FIXME: MISSING key
@@ -455,6 +481,21 @@ class BedrockModel(Model):
             else:
                 assert_never(m)
         return system_prompt, bedrock_messages
+
+
+def _map_reasoning_content(
+    reasoning: ReasoningPart,
+) -> ReasoningContentBlockOutputTypeDef:
+    response = {}
+    if reasoning.reasoningText:
+        response["reasoningText"]["text"] = reasoning.reasoningText.text
+        if reasoning.reasoningText.signature:
+            response["reasoningText"]["signature"] = reasoning.reasoningText.signature
+
+    if reasoning.redactedContent:
+        response["redactedContent"] = reasoning.redactedContent
+
+    return response
 
 
 def _map_tool_call(t: ToolCallPart) -> ToolUseBlockOutputTypeDef:
