@@ -102,6 +102,7 @@ class BedrockStreamedResponse(StreamedResponse):
         chunk: ConverseStreamOutputTypeDef
         async for chunk in AsyncIteratorWrapper(self._event_stream):
             # TODO: Switch this to `match` when we drop Python 3.9 support
+            print(chunk)
             if "messageStart" in chunk:
                 continue
             if "messageStop" in chunk:
@@ -139,6 +140,13 @@ class BedrockStreamedResponse(StreamedResponse):
                         args=tool_use.get("input") or None,  # Fix for empty string
                         tool_call_id=tool_id,
                     )
+                if "reasoningContent" in delta:
+                    # TODO: Move to reasoning part when available
+                    # yield self._parts_manager.handle_text_delta(
+                    #     vendor_part_id=index,
+                    #     content=delta["reasoningContent"]["text"],
+                    # )
+                    continue
 
     @property
     def timestamp(self) -> datetime:
@@ -247,10 +255,17 @@ class BedrockModel(Model):
         items: list[ModelResponsePart] = []
         for item in response["output"]["message"]["content"]:
             # TODO: Switch this to `match` when we drop Python 3.9 support
+            if (
+                not item.get("text")
+                and not item.get("toolUse")
+                and not item.get("reasoningContent")
+            ):
+                # Unsupported content
+                continue
+
             if item.get("text"):
                 items.append(TextPart(item["text"]))
-            else:
-                assert item.get("toolUse")
+            if item.get("toolUse"):
                 items.append(
                     ToolCallPart(
                         tool_name=item["toolUse"]["name"],
@@ -258,6 +273,11 @@ class BedrockModel(Model):
                         tool_call_id=item["toolUse"]["toolUseId"],
                     ),
                 )
+            if item.get("reasoningContent"):
+                # FIXME: Move to reasoning part when available
+                # items.append(TextPart(item["reasoningText"]["text"]))
+                pass
+
         usage = result.Usage(
             request_tokens=response["usage"]["inputTokens"],
             response_tokens=response["usage"]["outputTokens"],
@@ -315,7 +335,7 @@ class BedrockModel(Model):
             if tools
             else None
         )
-        model_settings = model_settings or {}
+        additional_settings = self._map_additional_settings(model_settings)
 
         params = exclude_none(
             dict(
@@ -324,6 +344,7 @@ class BedrockModel(Model):
                 system=[{"text": system_prompt}],
                 inferenceConfig=inference_config,
                 toolConfig=toolConfig,
+                additionalModelRequestFields=additional_settings,
             )
         )
         if stream:
@@ -332,6 +353,17 @@ class BedrockModel(Model):
         else:
             model_response = await run_in_threadpool(self.client.converse, **params)
         return model_response
+
+    @staticmethod
+    def _map_additional_settings(model_settings: ModelSettings | None):
+        model_settings = model_settings or {}
+        if model_settings.get("enable_reasoning"):
+            return {
+                "reasoning_config": {
+                    "type": "enabled",
+                    "budget_tokens": model_settings.get("budget_tokens", 1024),
+                },
+            }
 
     @staticmethod
     def _map_inference_config(
@@ -343,8 +375,9 @@ class BedrockModel(Model):
                 "maxTokens": model_settings.get("max_tokens"),
                 "temperature": model_settings.get("temperature"),
                 "topP": model_settings.get("top_p"),
-                # TODO: This is not included in model_settings yet
-                # "stopSequences": model_settings.get('stop_sequences'),
+                "stopSequences": model_settings.get(
+                    "stop_sequences"
+                ),  # TODO: This is not included in model_settings yet
             }
         )
 
