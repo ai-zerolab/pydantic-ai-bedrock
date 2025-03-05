@@ -2,20 +2,23 @@ from __future__ import annotations
 
 import functools
 import typing
+from collections.abc import Hashable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, AsyncIterator, Iterator, Literal, overload
+from typing import TYPE_CHECKING, AsyncIterator, Iterator, Literal, TypedDict, overload
 
 import anyio
 import boto3
-from pydantic_ai import result
+from pydantic_ai import UnexpectedModelBehavior, result
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
     ModelResponsePart,
     ModelResponseStreamEvent,
+    PartDeltaEvent,
+    PartStartEvent,
     RetryPromptPart,
     SystemPromptPart,
     TextPart,
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
         ConverseStreamOutputTypeDef,
         InferenceConfigurationTypeDef,
         MessageUnionTypeDef,
+        ReasoningContentBlockOutputTypeDef,
         ToolTypeDef,
         ToolUseBlockOutputTypeDef,
     )
@@ -49,6 +53,77 @@ if TYPE_CHECKING:
 
 P = ParamSpec("P")
 T = typing.TypeVar("T")
+
+
+class ReasoningTextBlock(TypedDict):
+    text: str
+    signature: str | None = None
+
+
+@dataclass
+class ReasoningPart(TextPart):
+    content: str = ""
+    reasoningText: ReasoningTextBlock | None = None
+    redactedContent: bytes | None = None
+
+    part_kind: Literal["reasoning"] = "reasoning"
+
+    def has_content(self) -> bool:
+        return bool(self.reasoningText or self.redactedContent)
+
+
+@dataclass
+class ReasoningPartDelta:
+    reasoning_content: ReasoningContentBlockOutputTypeDef
+
+    part_delta_kind: Literal["reasoning"] = "reasoning"
+
+    def apply(self, part: ReasoningPart) -> ReasoningPart:
+        if part.reasoningText:
+            original_reasoning_text = part.reasoningText.get("text")
+            original_signature = part.reasoningText.get("signature")
+        else:
+            original_reasoning_text = None
+            original_signature = None
+
+        original_redacted_content = part.redactedContent
+
+        if "reasoningText" in self.reasoning_content:
+            delta_reasoning_text = self.reasoning_content["reasoningText"].get("text")
+            delta_signature = self.reasoning_content["reasoningText"].get("signature")
+        else:
+            delta_reasoning_text = None
+            delta_signature = None
+
+        if "redactedContent" in self.reasoning_content:
+            delta_redacted_content = self.reasoning_content["redactedContent"]
+        else:
+            delta_redacted_content = None
+
+        new_reasoning_text = (
+            delta_reasoning_text + original_reasoning_text or ""
+            if delta_reasoning_text is not None
+            else original_reasoning_text
+        )
+        new_signature = (
+            delta_signature + original_signature or ""
+            if delta_signature is not None
+            else original_signature
+        )
+        new_redacted_content = (
+            delta_redacted_content + original_redacted_content or b""
+            if delta_redacted_content is not None
+            else original_redacted_content
+        )
+
+        return replace(
+            part,
+            reasoningText={
+                "text": new_reasoning_text,
+                "signature": new_signature,
+            },
+            redactedContent=new_redacted_content,
+        )
 
 
 async def run_in_threadpool(func: typing.Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
@@ -87,6 +162,58 @@ def now_utc() -> datetime:
     return datetime.now(tz=timezone.utc)
 
 
+def handle_reasoning_delta(
+    self,
+    *,
+    vendor_part_id: Hashable | None,
+    reasoning_content: ReasoningContentBlockOutputTypeDef,
+):
+    existing_reasoning_part_and_index: tuple[ReasoningPart, int] | None = None
+    if vendor_part_id is None:
+        # If the vendor_part_id is None, check if the latest part is a TextPart to update
+        if self._parts:
+            part_index = len(self._parts) - 1
+            latest_part = self._parts[part_index]
+            if isinstance(latest_part, TextPart):
+                existing_reasoning_part_and_index = latest_part, part_index
+    else:
+        # Otherwise, attempt to look up an existing TextPart by vendor_part_id
+        part_index = self._vendor_id_to_part_index.get(vendor_part_id)
+        if part_index is not None:
+            existing_part = self._parts[part_index]
+            if not isinstance(existing_part, ReasoningPart):
+                raise UnexpectedModelBehavior(
+                    f"Cannot apply a reasoning content delta to {existing_part=}"
+                )
+            existing_reasoning_part_and_index = existing_part, part_index
+
+    if existing_reasoning_part_and_index is None:
+        # There is no existing ReasoningPart part that should be updated, so create a new one
+        new_part_index = len(self._parts)
+        part = ReasoningPart(
+            reasoningText=reasoning_content.get("reasoningText"),
+            redactedContent=reasoning_content.get("redactedContent"),
+        )
+        if vendor_part_id is not None:
+            self._vendor_id_to_part_index[vendor_part_id] = new_part_index
+        self._parts.append(part)
+        return PartStartEvent(index=new_part_index, part=part)
+    else:
+        # Update the existing ReasoningPart with the new content delta
+        existing_reasoning_part, part_index = existing_reasoning_part_and_index
+        part_delta = ReasoningPartDelta(reasoning_content=reasoning_content)
+        self._parts[part_index] = part_delta.apply(existing_reasoning_part)
+        return PartDeltaEvent(index=part_index, delta=part_delta)
+
+
+def patch_reasoning_handler(parts_manager):
+    if hasattr(parts_manager, "handle_reasoning_delta"):
+        return parts_manager
+
+    parts_manager.handle_reasoning_delta = functools.partial(handle_reasoning_delta, parts_manager)
+    return parts_manager
+
+
 @dataclass
 class BedrockStreamedResponse(StreamedResponse):
     _model_name: str
@@ -99,6 +226,8 @@ class BedrockStreamedResponse(StreamedResponse):
         This method should be implemented by subclasses to translate the vendor-specific stream of events into
         pydantic_ai-format events.
         """
+        self._parts_manager = patch_reasoning_handler(self._parts_manager)
+
         chunk: ConverseStreamOutputTypeDef
         async for chunk in AsyncIteratorWrapper(self._event_stream):
             # TODO: Switch this to `match` when we drop Python 3.9 support
@@ -138,6 +267,11 @@ class BedrockStreamedResponse(StreamedResponse):
                         tool_name=tool_use.get("name"),
                         args=tool_use.get("input") or None,  # Fix for empty string
                         tool_call_id=tool_id,
+                    )
+                if "reasoningContent" in delta:
+                    yield self._parts_manager.handle_reasoning_delta(
+                        vendor_part_id=index,
+                        reasoning_content=delta["reasoningContent"],
                     )
 
     @property
@@ -247,10 +381,17 @@ class BedrockModel(Model):
         items: list[ModelResponsePart] = []
         for item in response["output"]["message"]["content"]:
             # TODO: Switch this to `match` when we drop Python 3.9 support
+            if (
+                not item.get("text")
+                and not item.get("toolUse")
+                and not item.get("reasoningContent")
+            ):
+                # Unsupported content
+                continue
+
             if item.get("text"):
                 items.append(TextPart(item["text"]))
-            else:
-                assert item.get("toolUse")
+            if item.get("toolUse"):
                 items.append(
                     ToolCallPart(
                         tool_name=item["toolUse"]["name"],
@@ -258,6 +399,14 @@ class BedrockModel(Model):
                         tool_call_id=item["toolUse"]["toolUseId"],
                     ),
                 )
+            if item.get("reasoningContent"):
+                items.append(
+                    ReasoningPart(
+                        reasoningText=item["reasoningContent"].get("reasoningText"),
+                        redactedContent=item["reasoningContent"].get("redactedContent"),
+                    )
+                )
+
         usage = result.Usage(
             request_tokens=response["usage"]["inputTokens"],
             response_tokens=response["usage"]["outputTokens"],
@@ -315,7 +464,7 @@ class BedrockModel(Model):
             if tools
             else None
         )
-        model_settings = model_settings or {}
+        additional_settings = self._map_additional_settings(model_settings)
 
         params = exclude_none(
             dict(
@@ -324,6 +473,7 @@ class BedrockModel(Model):
                 system=[{"text": system_prompt}],
                 inferenceConfig=inference_config,
                 toolConfig=toolConfig,
+                additionalModelRequestFields=additional_settings,
             )
         )
         if stream:
@@ -332,6 +482,17 @@ class BedrockModel(Model):
         else:
             model_response = await run_in_threadpool(self.client.converse, **params)
         return model_response
+
+    @staticmethod
+    def _map_additional_settings(model_settings: ModelSettings | None):
+        model_settings = model_settings or {}
+        if model_settings.get("enable_reasoning"):
+            return {
+                "reasoning_config": {
+                    "type": "enabled",
+                    "budget_tokens": model_settings.get("budget_tokens", 1024),
+                },
+            }
 
     @staticmethod
     def _map_inference_config(
@@ -343,8 +504,9 @@ class BedrockModel(Model):
                 "maxTokens": model_settings.get("max_tokens"),
                 "temperature": model_settings.get("temperature"),
                 "topP": model_settings.get("top_p"),
-                # TODO: This is not included in model_settings yet
-                # "stopSequences": model_settings.get('stop_sequences'),
+                "stopSequences": model_settings.get(
+                    "stop_sequences"
+                ),  # TODO: This is not included in model_settings yet
             }
         )
 
@@ -382,6 +544,7 @@ class BedrockModel(Model):
                                 ],
                             },
                         )
+
                     elif isinstance(part, RetryPromptPart):
                         if part.tool_name is None:
                             bedrock_messages.append(
@@ -408,8 +571,10 @@ class BedrockModel(Model):
             elif isinstance(m, ModelResponse):
                 content: list[ContentBlockOutputTypeDef] = []
                 for item in m.parts:
-                    if isinstance(item, TextPart):
+                    if isinstance(item, TextPart) and not isinstance(item, ReasoningPart):
                         content.append({"text": item.content})
+                    elif isinstance(item, ReasoningPart):
+                        content.append({"reasoningContent": _map_reasoning_content(item)})
                     else:
                         assert isinstance(item, ToolCallPart)
                         content.append(_map_tool_call(item))  # FIXME: MISSING key
@@ -422,6 +587,22 @@ class BedrockModel(Model):
             else:
                 assert_never(m)
         return system_prompt, bedrock_messages
+
+
+def _map_reasoning_content(
+    reasoning: ReasoningPart,
+) -> ReasoningContentBlockOutputTypeDef:
+    if reasoning.redactedContent:
+        return {"redactedContent": reasoning.redactedContent}
+    response = {
+        "reasoningText": {},
+    }
+    if reasoning.reasoningText:
+        response["reasoningText"]["text"] = reasoning.reasoningText["text"]
+        if reasoning.reasoningText.get("signature"):
+            response["reasoningText"]["signature"] = reasoning.reasoningText["signature"]
+
+    return response
 
 
 def _map_tool_call(t: ToolCallPart) -> ToolUseBlockOutputTypeDef:
