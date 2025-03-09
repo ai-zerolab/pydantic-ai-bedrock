@@ -6,7 +6,9 @@
 
 # pydantic_ai_bedrock
 
-https://github.com/pydantic/pydantic-ai/issues/118#issuecomment-2589200395
+Pydantic has support for Bedrock. See: https://github.com/pydantic/pydantic-ai/pull/994
+
+You don't need this package now. Unless you want to use claude 3.7's extended reasoning(see [0.2.2 release](https://github.com/ai-zerolab/pydantic-ai-bedrock/releases/tag/0.2.2)).
 
 ## Install
 
